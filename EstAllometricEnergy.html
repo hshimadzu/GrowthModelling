@@ -389,14 +389,15 @@ yr &lt;- seq(0, 6, by=dt) # age cover: 0-6 years</code></pre>
 locdata.p &lt;- subset(data0, site==&quot;K&quot;)
 #######################
 # for site T
-locdata.p &lt;- subset(data0, site==&quot;T&quot; &amp; newage &lt; 4)
+locdata.p &lt;- subset(data0, site==&quot;T&quot;)
 
 ######################
 ### estimating maturity probability
 #######################
 mat &lt;- gam(I(maturity==&quot;M&quot;)~lo(newage), data=locdata.p, family=&quot;binomial&quot;)
 p.p &lt;- predict(mat, predict, newdata=data.frame(newage=yr), type=&quot;response&quot;)</code></pre>
-<p>This fitting process produces warning messages because of the concentration of data points at only certain ages. However, this does not mean the fit has a problem; see [33].</p>
+<p>This fitting process produces warning messages because of the concentration of data points at only certain ages. However, this does not mean the fit has a problem; see Cleveland <em>et al.</em> (1991).</p>
+<p>Cleveland, W. S., Grosse, E. and Shyu, W. M. (1991). Local Regression Models in <em>Statistical Models in S</em>, Chapman and Hall/CRC.</p>
 </div>
 <div id="parameter-estimation" class="section level3">
 <h3>Parameter estimation</h3>
@@ -409,7 +410,7 @@ w%*%(res.v^2)*dt/2
 }
 
 ssr.g &lt;- function(b, beta){
-  res.w &lt;- pdg - p*b*pw^beta
+  res.w &lt;- pdg - p*b*pw^exp(beta)
   res.w &lt;- res.w[!is.na(res.w)]
   w &lt;- rep(2, length(res.w))
   w[1] &lt;- w[length(res.w)] &lt;- 1
@@ -418,13 +419,13 @@ w%*%(res.w^2)*dt/2
 <p>These are the lines of the essential code for parameter estimation.</p>
 <pre class="r"><code>#######################
 # for site K
-hv &lt;- hg &lt;- 0.77 # site&quot;K&quot;
-locdata &lt;- subset(data0, site==&quot;K&quot; &amp; newage &lt; 4.5)
+hv &lt;- hg &lt;- 0.51 # site&quot;K&quot;
+locdata &lt;- subset(data0, site==&quot;K&quot;)
 #######################
 # for site T
-hv &lt;- 0.75 # site&quot;T&quot;
-hg &lt;- 0.72 # site&quot;T&quot;
-locdata &lt;- subset(data0, site==&quot;T&quot; &amp; newage &lt; 4)
+hv &lt;- 0.34 # site&quot;T&quot;
+hg &lt;- 0.53 # site&quot;T&quot;
+locdata &lt;- subset(data0, site==&quot;T&quot;)
 
 #######################
 ### fitting a loess curve
@@ -435,8 +436,8 @@ lo.g &lt;- loess(gonad_w ~ newage, data=locdata, degree=1, span=hg) # gonad weig
 #######################
 ### predicting a loess curve
 #######################
-p.v &lt;- predict(lo.v, newdata=data.frame(newage=yr))
-p.g &lt;- predict(lo.g, newdata=data.frame(newage=yr))
+p.v &lt;- predict(lo.v, newdata=data.frame(newage=yr[yr&lt;=4]) # yr&lt;=3 for site T
+p.g &lt;- predict(lo.g, newdata=data.frame(newage=yr[yr&lt;=4]) # yr&lt;=3 for site T
   x &lt;- p.g
   x[x&lt;0 &amp; !is.na(x)] &lt;- 0
   p.g &lt;- x
@@ -459,7 +460,7 @@ pdv &lt;- pdv[!is.na(pdv)]
 pdv &lt;- pdv[pw&gt;0]
 pw &lt;- pw[pw&gt;0]
 
-fit.v &lt;- mle2(ssr.v, start=list(a=1, alpha=0.9), upper=c(a=Inf, alpha=1), lower=c(a=0, alpha=0), method=&quot;L-BFGS-B&quot;)
+fit.v &lt;- mle2(ssr.v, start=list(a=1, alpha=0.9), lower=c(a=0, alpha=0), method=&quot;L-BFGS-B&quot;)
 
 #################
 ## Estimating b and beta
@@ -474,13 +475,67 @@ pdg &lt;- pdg[pw&gt;0]
 p &lt;- p[pw&gt;0]
 pw &lt;- pw[pw&gt;0]
 
-fit.g &lt;- mle2(ssr.g, start=list(b=0.01, beta=1.7), upper=c(b=10, beta=1.8), lower=c(b=0, beta=-Inf), method=&quot;L-BFGS-B&quot;)
+fit.g &lt;- mle2(ssr.g, start=list(b=0.5, beta=0.5), lower=c(b=0, beta=-Inf), method=&quot;L-BFGS-B&quot;)
 
 
 a &lt;- coef(fit.v)[1]
 alpha &lt;- coef(fit.v)[2]
 b &lt;- coef(fit.g)[1]
-beta &lt;- coef(fit.g)[2]</code></pre>
+beta &lt;- exp(coef(fit.g)[2])</code></pre>
+</div>
+<div id="simulation-data" class="section level2">
+<h2>Simulation data</h2>
+<div id="required-packages-1" class="section level3">
+<h3>Required packages</h3>
+<pre class="r"><code>library(deSolve)</code></pre>
+<pre class="r"><code>#######################
+### Initial settings
+#######################
+times &lt;- seq(from=0, to=6, by=1/12)
+a &lt;- 4.2
+alpha &lt;- 0.6
+b &lt;- 0.02
+beta &lt;- 1.14
+parameters &lt;- c(a, alpha, b, beta)
+v &lt;- w &lt;- 7
+state &lt;- c(v=v, w=w, g=0)
+
+
+#######################
+### Defining the growth model
+#######################
+Gmodel &lt;- function(t, state, parms){
+  with(as.list(c(state, parms)),{
+    p &lt;- 1/(1+exp(6.2-3.2*t))
+    dv &lt;- a*w^(alpha)
+    dw &lt;- a*w^(alpha) - p*b*w^(beta)
+    dg &lt;- p*b*w^(beta)
+
+  list(c(dv, dw, dg), pr=p)
+  })
+}
+
+Curves &lt;- data.frame(ode(y = state, times = times, func = Gmodel, parms = parameters))
+t.pos &lt;- seq(from=0, to=6, by=1/2)
+Curves.sub &lt;- Curves[Curves$time%in%t.pos,]
+
+
+#######################
+### Creating the simulation data
+#######################
+samp &lt;- Curves.sub[sample(1:13, size=250, replace=T),]
+samp$ve &lt;- samp$v + with(samp, sapply(time, function(x)rnorm(1, 0, sd=10*sqrt(x))))
+samp$ge &lt;- samp$g + with(samp, sapply(time, function(x)rnorm(1, 0, sd=1*sqrt(x))))
+
+p &lt;- 1/(1+exp(6.2-3.2*samp$time))
+samp$mat &lt;- sapply(p, function(x)rbinom(1, 1, prob=x))
+
+samp[samp$ve&lt;0, &quot;ve&quot;] &lt;- 0
+samp[samp$ge&lt;0|samp$mat==0, &quot;ge&quot;] &lt;- 0
+
+sim.data &lt;- samp
+names(sim.data) &lt;- c(&quot;newage&quot;, &quot;v&quot;, &quot;w&quot;, &quot;g&quot;, &quot;pr&quot;, &quot;total_w&quot;, &quot;gonad_w&quot;, &quot;mat&quot;)</code></pre>
+</div>
 </div>
 
 
